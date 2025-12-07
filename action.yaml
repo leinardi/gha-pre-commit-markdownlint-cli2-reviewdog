@@ -1,6 +1,5 @@
-# Replace `<OWNER>/<REPO>` with this action’s repository, and `<TOOL>` / `<HOOK_ID>` with the actual tool and hook name for the concrete action.
-name: "Run <TOOL> via pre-commit + reviewdog"
-description: "Runs <HOOK_ID> pre-commit hook on a diff range and reports via reviewdog"
+name: "Run markdownlint-cli2 via pre-commit + reviewdog"
+description: "Runs the markdownlint-cli2 pre-commit hook on a ref range and reports diagnostics and fix diffs via reviewdog"
 author: "leinardi"
 branding:
   icon: "check-circle"
@@ -19,8 +18,8 @@ inputs:
 
 outputs:
   exitcode:
-    description: "Exit code of the <HOOK_ID> pre-commit hook"
-    value: ${{ steps.run_hook.outputs.exitcode }}
+    description: "Exit code returned by the markdownlint-cli2 pre-commit hook"
+    value: ${{ steps.markdownlint_lint.outputs.exitcode }}
 
 runs:
   using: "composite"
@@ -38,45 +37,57 @@ runs:
         pip install --no-cache-dir pre-commit
 
     - name: Setup reviewdog binary
-      uses: reviewdog/action-setup@d8a7baabd7f3e8544ee4dbde3ee41d0011c3a93f
+      uses: reviewdog/action-setup@e04ffabe3898a0af8d0fb1af00c188831c4b5893
       with:
         reviewdog_version: latest
 
-    # TODO: customize this step for your specific hook and parsing logic
-    - name: Run <HOOK_ID> pre-commit hook
-      id: run_hook
+    - name: Run markdownlint-cli2 (pre-commit hook)
+      id: markdownlint_lint
       shell: bash
       run: |
+        # Run the hook and capture exit code without failing the step
         set +e
         set -o pipefail
 
-        # Run the specific pre-commit hook on the diff range
-        pre-commit run <HOOK_ID> \
-          --hook-stage manual \
+        pre-commit run markdownlint-cli2 \
           --from-ref "${{ inputs.from-ref }}" \
           --to-ref   "${{ inputs.to-ref }}" \
           --color=never \
-          | tee hook-output.txt
+          | tee >(grep -Ev '^\[INFO\]' | tail -n +5 > markdownlint-report.txt)
 
         exitcode=${PIPESTATUS[0]}
         echo "exitcode=$exitcode" >> "$GITHUB_OUTPUT"
+
+        # Capture any autofix changes as a diff
+        git diff > markdownlint.diff || true
+
         # Do not fail here; let reviewdog decide
         exit 0
 
-    - name: Report findings via reviewdog
-      if: steps.run_hook.outputs.exitcode != '0'
+    - name: Report markdownlint-cli2 fixes via reviewdog
+      if: steps.markdownlint_lint.outputs.exitcode != '0'
+      env:
+        REVIEWDOG_GITHUB_API_TOKEN: ${{ inputs.github-token }}
+      continue-on-error: true
+      shell: bash
+      run: |
+        reviewdog \
+          -name="markdownlint-cli2 (fixes)" \
+          -f=diff \
+          -f.diff.strip=1 \
+          -reporter=github-pr-review \
+          -filter-mode=nofilter < markdownlint.diff
+
+    - name: Report markdownlint-cli2 diagnostics via reviewdog
+      if: steps.markdownlint_lint.outputs.exitcode != '0'
       env:
         REVIEWDOG_GITHUB_API_TOKEN: ${{ inputs.github-token }}
       shell: bash
       run: |
-        # TODO: adapt this part to match your tool's output format and efm
-        # For example, you might need to transform hook-output.txt lines
-        # into reviewdog's %t:%f:%l:%c:%m format.
-
-        cat hook-output.txt \
+        cat markdownlint-report.txt \
           | reviewdog \
-              -efm="%f:%l:%c: %m" \
-              -name="<TOOL>" \
+              -efm="%f:%l %m" \
+              -name="markdownlint-cli2" \
               -reporter=github-pr-review \
               -filter-mode=nofilter \
               -fail-level=info
