@@ -37,7 +37,7 @@ runs:
         pip install --no-cache-dir pre-commit
 
     - name: Setup reviewdog binary
-      uses: reviewdog/action-setup@e04ffabe3898a0af8d0fb1af00c188831c4b5893
+      uses: reviewdog/action-setup@d8a7baabd7f3e8544ee4dbde3ee41d0011c3a93f
       with:
         reviewdog_version: latest
 
